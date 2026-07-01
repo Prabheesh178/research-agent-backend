@@ -11,6 +11,11 @@ def get_openai_client(openai_key: str = None, base_url: str = None) -> OpenAI:
     if not key or key.strip() == "":
         raise ValueError("API Key is missing. Please provide it in Settings or your environment.")
     
+    # Auto-detect OpenRouter keys
+    cleaned_key = key.strip()
+    if cleaned_key.startswith("sk-or-v1") and (not b_url or b_url.strip() == ""):
+        b_url = "https://openrouter.ai/api/v1"
+        
     if b_url and b_url.strip() != "":
         return OpenAI(api_key=key, base_url=b_url.strip())
     return OpenAI(api_key=key)

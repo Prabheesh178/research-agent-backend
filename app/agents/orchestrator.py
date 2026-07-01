@@ -7,6 +7,17 @@ def orchestrate_session(state: dict) -> dict:
     Step 1: Classify intent (QA, PAPER, BOTH)
     Step 2: Load user memory profile
     """
+    # Auto-sanitize LLM configurations in state for OpenRouter keys
+    openai_key = state.get("openai_key") or ""
+    llm_base_url = state.get("llm_base_url") or ""
+    llm_model = state.get("llm_model") or ""
+    
+    if openai_key.strip().startswith("sk-or-v1"):
+        if not llm_base_url or llm_base_url.strip() == "":
+            state["llm_base_url"] = "https://openrouter.ai/api/v1"
+        if not llm_model or llm_model.strip() in ["", "gpt-4o-mini", "gpt-4o", "gpt-3.5-turbo"]:
+            state["llm_model"] = "google/gemma-2-9b-it:free"
+
     state["trace_logs"].append({
         "agent": "Orchestrator",
         "status": "running",
