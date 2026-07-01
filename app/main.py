@@ -22,14 +22,18 @@ app = FastAPI(title="Research Agent Backend API")
 
 # Enable CORS for frontend integration
 allowed_origins = ["*"]
+allow_credentials = False
 if os.getenv("ENV") == "production":
     vercel_url = os.getenv("ALLOWED_ORIGIN", "https://your-vercel-frontend.vercel.app")
+    if vercel_url.endswith("/"):
+        vercel_url = vercel_url[:-1]
     allowed_origins = [vercel_url]
+    allow_credentials = True
 
 app.add_middleware(
     CORSMiddleware,
     allow_origins=allowed_origins,
-    allow_credentials=True,
+    allow_credentials=allow_credentials,
     allow_methods=["*"],
     allow_headers=["*"],
 )
