@@ -6,6 +6,18 @@ from app.agents.paper_writer import run_paper_writer_agent
 from app.agents.data_analysis_agent import run_data_analysis_agent
 from app.agents.humanizer import run_humanizer_agent
 from app.agents.memory_engine import run_memory_engine
+from app.agents.specialized_agents import (
+    run_citation_graph_agent,
+    run_gap_finder_agent,
+    run_compare_agent,
+    run_methodology_agent,
+    run_paraphrase_agent,
+    run_abstract_grader_agent,
+    run_ref_formatter_agent,
+    run_proposal_writer_agent,
+    run_confidence_scorer,
+    run_export_agent
+)
 
 def run_agent_pipeline(prompt: str, user_id: str, openai_key: str = None, tavily_key: str = None, llm_base_url: str = None, llm_model: str = None, uploaded_data_sheets: list = None) -> dict:
     """
@@ -22,6 +34,16 @@ def run_agent_pipeline(prompt: str, user_id: str, openai_key: str = None, tavily
         "uploaded_data_sheets": uploaded_data_sheets or [],
         "intent": "QA",
         "data_analysis_agent": False,
+        "citation_graph_agent": False,
+        "gap_finder_agent": False,
+        "compare_agent": False,
+        "methodology_agent": False,
+        "paraphrase_agent": False,
+        "abstract_grader_agent": False,
+        "ref_formatter_agent": False,
+        "proposal_writer_agent": False,
+        "export_agent": False,
+        "confidence_scorer": False,
         "data_analysis_output": "",
         "memory_profile": {},
         "rag_summary": "",
@@ -59,10 +81,34 @@ def run_agent_pipeline(prompt: str, user_id: str, openai_key: str = None, tavily
         elif intent == "BOTH":
             state = run_synthesis_agent(state)
             state = run_paper_writer_agent(state)
+        elif intent == "CITE_GRAPH":
+            state = run_citation_graph_agent(state)
+        elif intent == "GAP":
+            state = run_gap_finder_agent(state)
+        elif intent == "COMPARE":
+            state = run_compare_agent(state)
+        elif intent == "METHODOLOGY":
+            state = run_methodology_agent(state)
+        elif intent == "PARAPHRASE":
+            state = run_paraphrase_agent(state)
+        elif intent == "GRADE":
+            state = run_abstract_grader_agent(state)
+        elif intent == "FORMAT_REFS":
+            state = run_ref_formatter_agent(state)
+        elif intent == "PROPOSAL":
+            state = run_proposal_writer_agent(state)
             
         # 4. Humanizer
         state = run_humanizer_agent(state)
         
+        # 4.5. Confidence Scorer (if triggered)
+        if state.get("confidence_scorer"):
+            state = run_confidence_scorer(state)
+            
+        # 4.6. Export Formatter (if triggered)
+        if state.get("export_agent"):
+            state = run_export_agent(state)
+            
         # 5. Memory Engine (silent)
         state = run_memory_engine(state)
         

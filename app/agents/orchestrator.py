@@ -76,20 +76,28 @@ def orchestrate_session(state: dict) -> dict:
     files_context = f"Uploaded files in workspace: {', '.join(uploaded_files)}" if uploaded_files else "No files uploaded."
     
     system_prompt = (
-        "You are an Orchestrator Agent. Your task is to classify the user's research query into one or more of these intents:\n"
+        "You are an Orchestrator Agent. Your task is to classify the user's research query into one of these intents:\n"
         "- 'QA': User wants an answer, summary, explanation, or search for citations. Keywords: 'what', 'explain', 'summarize', 'find papers', 'compare', 'how does'.\n"
         "- 'PAPER': User wants an academic paper, section, abstract, lit review, or draft written. Keywords: 'write', 'draft', 'generate', 'create a section', 'IEEE format'.\n"
         "- 'BOTH': User wants both QA research AND a draft paper written.\n"
         "- 'DATA': User wants numerical analysis, charts, statistics, formatting, duplicate cleaning, columns comparison, or insights from data sheets. Keywords: 'analyze', 'analyse', 'analysis', 'chart', 'graph', 'plot', 'visualize', 'trend', 'pattern', 'correlation', 'distribution', 'average', 'mean', 'median', 'sum', 'count', 'max', 'min', 'duplicates', 'missing values'.\n"
         "- 'DATA+QA': User has uploaded data files (CSV, Excel, JSON) and wants an analysis QA response.\n"
-        "- 'DATA+PAPER': User wants to analyze data first, and then write an academic paper section based on it.\n\n"
+        "- 'DATA+PAPER': User wants to analyze data first, and then write an academic paper section based on it.\n"
+        "- 'CITE_GRAPH': User wants a citation graph, connection map, or paper mapping. Keywords: 'citation graph', 'how are these papers connected', 'paper map', 'visualize citations'.\n"
+        "- 'GAP': User wants research gap finding. Keywords: 'research gap', 'what hasn't been studied', 'find the gap', 'unexplored area'.\n"
+        "- 'COMPARE': User wants to compare multiple papers. Keywords: 'compare these papers', 'differences between', 'compare methodologies', 'contrast'.\n"
+        "- 'METHODOLOGY': User wants methodology suggestions. Keywords: 'what methodology should I use', 'suggest a method', 'best research approach for'.\n"
+        "- 'PARAPHRASE': User wants to paraphrase text. Keywords: 'paraphrase this', 'rewrite this paragraph', 'rephrase without plagiarism', '3 versions of'.\n"
+        "- 'GRADE': User wants abstract evaluation. Keywords: 'grade my abstract', 'score this abstract', 'check my abstract', 'improve my abstract'.\n"
+        "- 'FORMAT_REFS': User wants reference cleaning/formatting. Keywords: 'format my references', 'clean my bibliography', 'convert to IEEE/APA/MLA', 'fix my citations'.\n"
+        "- 'PROPOSAL': User wants a research proposal written. Keywords: 'write a proposal', 'research proposal', 'draft my proposal', 'problem statement', 'research objectives'.\n\n"
         "Rules:\n"
         "1. If user uploads a CSV, Excel, or JSON file and asks any question -> trigger DATA or DATA+QA mode.\n"
         "2. If user uploads a PDF with tables and asks about numbers -> trigger DATA mode.\n"
-        "3. If both data analysis and drafting a paper are needed -> trigger DATA+PAPER mode.\n\n"
+        "3. Choose the specific intent (GAP, COMPARE, CITE_GRAPH, METHODOLOGY, PARAPHRASE, GRADE, FORMAT_REFS, PROPOSAL) if the prompt focuses primarily on that action.\n\n"
         f"Context:\n{files_context}\n\n"
-        "Respond ONLY with one of the following JSON formats: \n"
-        "{\"intent\": \"QA\"} or {\"intent\": \"PAPER\"} or {\"intent\": \"BOTH\"} or {\"intent\": \"DATA\"} or {\"intent\": \"DATA+QA\"} or {\"intent\": \"DATA+PAPER\"}."
+        "Respond ONLY with a JSON object in this format:\n"
+        "{\"intent\": \"INTENT_NAME\"}"
     )
     
     try:
@@ -114,8 +122,20 @@ def orchestrate_session(state: dict) -> dict:
         
     state["intent"] = intent
     
-    # Set dispatch flags
+    # Set dispatch flags for all agents
     state["data_analysis_agent"] = "DATA" in intent
+    state["citation_graph_agent"] = intent == "CITE_GRAPH"
+    state["gap_finder_agent"] = intent == "GAP"
+    state["compare_agent"] = intent == "COMPARE"
+    state["methodology_agent"] = intent == "METHODOLOGY"
+    state["paraphrase_agent"] = intent == "PARAPHRASE"
+    state["abstract_grader_agent"] = intent == "GRADE"
+    state["ref_formatter_agent"] = intent == "FORMAT_REFS"
+    state["proposal_writer_agent"] = intent == "PROPOSAL"
+    
+    # Check for EXPORT or CONFIDENCE queries explicitly in the prompt
+    state["export_agent"] = (intent == "EXPORT") or any(kw in prompt_lower for kw in ["export to", "download as", "save as", "export this"])
+    state["confidence_scorer"] = (intent == "CONFIDENCE") or any(kw in prompt_lower for kw in ["how sure", "is this accurate", "verified", "confidence report", "how confident"])
     
     state["trace_logs"].append({
         "agent": "Orchestrator",
@@ -124,7 +144,9 @@ def orchestrate_session(state: dict) -> dict:
         "data": {
             "intent": intent,
             "profile": profile,
-            "data_analysis_agent": state["data_analysis_agent"]
+            "data_analysis_agent": state["data_analysis_agent"],
+            "gap_finder_agent": state["gap_finder_agent"],
+            "compare_agent": state["compare_agent"]
         }
     })
     
