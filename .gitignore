@@ -1,0 +1,17 @@
+# Ephemeral database and uploads
+memory.db
+*.db
+uploads/
+
+# Environment configurations containing keys
+.env
+
+# Python build artifacts
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.pytest_cache/
+.venv/
+venv/
+ENV/
