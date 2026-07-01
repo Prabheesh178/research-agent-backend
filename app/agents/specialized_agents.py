@@ -474,7 +474,7 @@ def run_proposal_writer_agent(state: dict) -> dict:
 def run_confidence_scorer(state: dict) -> dict:
     """
     Evaluates final output claims, runs an auto-revision loop if confidence is medium/low,
-    and appends a confidence report.
+    and appends a confidence report. Supports human approval bypass commands.
     """
     state["trace_logs"].append({
         "agent": "Confidence Scorer",
@@ -488,8 +488,22 @@ def run_confidence_scorer(state: dict) -> dict:
         
     client = get_openai_client(state["openai_key"], state.get("llm_base_url"))
     
-    max_loops = 2
+    # Check if user explicitly bypasses the review loop (e.g. prompt contains 'approve' or 'override')
+    prompt_lower = state.get("prompt", "").lower().strip()
+    approve_override = any(kw in prompt_lower for kw in ["approve", "override", "force", "bypass"])
+    
+    if approve_override:
+        state["trace_logs"].append({
+            "agent": "Confidence Scorer",
+            "status": "info",
+            "message": "User approval override detected. Bypassing self-correction review loops."
+        })
+        max_loops = 1
+    else:
+        max_loops = 2
+        
     current_loop = 1
+    state["needs_human_approval"] = False
     
     while current_loop <= max_loops:
         system_prompt = (
@@ -530,7 +544,7 @@ def run_confidence_scorer(state: dict) -> dict:
             confidence_rating = result.get("confidence_rating", "HIGH").upper()
             low_claims = result.get("low_confidence_claims_summary", "")
             
-            # If confidence is MEDIUM or LOW and we haven't hit the max loop, trigger a self-correction rewrite!
+            # Loop back for self-correction rewrite if confidence is LOW/MEDIUM and we have remaining iterations
             if confidence_rating in ["MEDIUM", "LOW"] and current_loop < max_loops:
                 state["trace_logs"].append({
                     "agent": "Confidence Scorer",
@@ -556,7 +570,18 @@ def run_confidence_scorer(state: dict) -> dict:
                 current_loop += 1
                 continue
                 
-            # If high confidence or max loops hit, create final report
+            # If after loop we still have LOW/MEDIUM confidence, flag for manual review
+            if confidence_rating in ["MEDIUM", "LOW"] and not approve_override:
+                state["needs_human_approval"] = True
+                
+            # Create final report
+            approval_msg = ""
+            if state["needs_human_approval"]:
+                approval_msg = (
+                    "\n\n> ⚠️ **MANUAL APPROVAL REQUIRED**: The confidence score is still MEDIUM/LOW. "
+                    "Review the annotated claims above. To override and accept this draft, reply with **'approve'**."
+                )
+                
             report = (
                 "---\n"
                 "### 📊 CONFIDENCE REPORT\n"
@@ -565,6 +590,7 @@ def run_confidence_scorer(state: dict) -> dict:
                 f"- **Model Inferences**: {inferred_count}\n"
                 f"- **Overall Confidence Rating**: **{confidence_rating} ({'Verified >80%' if confidence_rating == 'HIGH' else '50-80%' if confidence_rating == 'MEDIUM' else '<50%'})**\n\n"
                 f"*Confidence review loop completed (iterations: {current_loop}).*"
+                f"{approval_msg}"
             )
             state["final_output"] = annotated_draft + "\n\n" + report
             break
@@ -577,7 +603,7 @@ def run_confidence_scorer(state: dict) -> dict:
     state["trace_logs"].append({
         "agent": "Confidence Scorer",
         "status": "completed",
-        "message": "Confidence report and loop review complete."
+        "message": f"Confidence report and loop review complete. Human approval required: {state['needs_human_approval']}."
     })
     return state
 
