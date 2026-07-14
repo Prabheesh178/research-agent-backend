@@ -5,7 +5,38 @@ from openai import OpenAI
 from app.database import get_db_connection
 from app.config import settings
 
-def get_openai_client(openai_key: str = None, base_url: str = None) -> OpenAI:
+class CompletionsWrapper:
+    def __init__(self, original_completions):
+        self.original_completions = original_completions
+        
+    def create(self, *args, **kwargs):
+        try:
+            return self.original_completions.create(*args, **kwargs)
+        except Exception as e:
+            err_msg = str(e)
+            if "429" in err_msg or "rate" in err_msg.lower() or "limit" in err_msg.lower() or "too many requests" in err_msg.lower():
+                import time
+                time.sleep(3.0)
+                try:
+                    return self.original_completions.create(*args, **kwargs)
+                except Exception:
+                    raise Exception("Free tier rate limit hit. Retrying in 10 seconds — or switch to a paid key for no limits.")
+            raise e
+
+class ChatWrapper:
+    def __init__(self, original_chat):
+        self.completions = CompletionsWrapper(original_chat.completions)
+
+class OpenAIWrapper:
+    def __init__(self, original_client):
+        self.original_client = original_client
+        self.chat = ChatWrapper(original_client.chat)
+        
+    @property
+    def embeddings(self):
+        return self.original_client.embeddings
+
+def get_openai_client(openai_key: str = None, base_url: str = None) -> OpenAIWrapper:
     key = openai_key or settings.OPENAI_API_KEY
     b_url = base_url or settings.LLM_BASE_URL
     if not key or key.strip() == "":
@@ -17,8 +48,11 @@ def get_openai_client(openai_key: str = None, base_url: str = None) -> OpenAI:
         b_url = "https://openrouter.ai/api/v1"
         
     if b_url and b_url.strip() != "":
-        return OpenAI(api_key=key, base_url=b_url.strip())
-    return OpenAI(api_key=key)
+        client = OpenAI(api_key=key, base_url=b_url.strip())
+    else:
+        client = OpenAI(api_key=key)
+        
+    return OpenAIWrapper(client)
 
 def get_embedding(text: str, openai_key: str = None, base_url: str = None) -> list:
     try:

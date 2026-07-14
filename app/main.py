@@ -11,7 +11,12 @@ from app.database import (
     get_user_profile,
     save_user_profile,
     delete_user_data,
-    DEFAULT_PROFILE
+    DEFAULT_PROFILE,
+    get_user_skills,
+    toggle_skill_enabled,
+    get_user_plugins,
+    toggle_plugin_enabled,
+    save_plugin_auth
 )
 from app.utils.pdf_parser import extract_pdf_chunks
 from app.utils.vector_store import add_document_chunks
@@ -71,6 +76,7 @@ async def query_endpoint(
     tavily_key: Optional[str] = Form(None),
     llm_base_url: Optional[str] = Form(None),
     llm_model: Optional[str] = Form(None),
+    model_tier: Optional[str] = Form("FREE"),
     files: List[UploadFile] = File([])
 ):
     """
@@ -81,6 +87,19 @@ async def query_endpoint(
     import time
     request_start_time = time.time()
     
+    # 0. Intercept system commands (/install, /uninstall, /skills, /plugins, /enable, /disable)
+    from app.utils.skills_manager import handle_system_commands
+    cmd_response = await handle_system_commands(prompt, user_id)
+    if cmd_response:
+        return {
+            "answer": cmd_response["final_output"],
+            "references": cmd_response["web_papers"],
+            "rag_chunks": cmd_response["rag_chunks"],
+            "trace_logs": cmd_response["trace_logs"],
+            "memory_profile": {},
+            "ingested_files": []
+        }
+        
     # 1. API Key presence check
     cleaned_openai_key = openai_key.strip() if openai_key else ""
     cleaned_tavily_key = tavily_key.strip() if tavily_key else ""
@@ -177,6 +196,7 @@ async def query_endpoint(
             tavily_key=cleaned_tavily_key,
             llm_base_url=cleaned_base_url,
             llm_model=cleaned_model,
+            model_tier=model_tier,
             uploaded_data_sheets=uploaded_data_sheets
         )
     except Exception as e:
@@ -282,3 +302,37 @@ def clear_user_data_endpoint(user_id: str):
         print(f"Error clearing user uploads folder: {str(e)}")
         
     return {"status": "success", "message": f"All data for user {user_id} has been wiped."}
+
+# Skills & Plugins API Endpoints
+class ToggleItem(BaseModel):
+    user_id: str
+    item_id: str
+    enabled: bool
+
+class AuthItem(BaseModel):
+    user_id: str
+    plugin_id: str
+    auth_data: dict
+
+@app.get("/api/skills/{user_id}")
+def get_skills_endpoint(user_id: str):
+    return {"skills": get_user_skills(user_id)}
+
+@app.post("/api/skills/toggle")
+def toggle_skill_endpoint(data: ToggleItem):
+    toggle_skill_enabled(data.user_id, data.item_id, data.enabled)
+    return {"status": "success", "message": f"Skill {data.item_id} enabled={data.enabled}."}
+
+@app.get("/api/plugins/{user_id}")
+def get_plugins_endpoint(user_id: str):
+    return {"plugins": get_user_plugins(user_id)}
+
+@app.post("/api/plugins/toggle")
+def toggle_plugin_endpoint(data: ToggleItem):
+    toggle_plugin_enabled(data.user_id, data.item_id, data.enabled)
+    return {"status": "success", "message": f"Plugin {data.item_id} enabled={data.enabled}."}
+
+@app.post("/api/plugins/auth")
+def auth_plugin_endpoint(data: AuthItem):
+    save_plugin_auth(data.user_id, data.plugin_id, data.auth_data)
+    return {"status": "success", "message": f"Plugin {data.plugin_id} auth saved."}

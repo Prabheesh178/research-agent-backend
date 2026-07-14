@@ -1,5 +1,11 @@
-import json
-from app.database import get_user_profile, save_user_profile, DEFAULT_PROFILE, get_db_connection
+from app.database import (
+    get_user_profile,
+    save_user_profile,
+    DEFAULT_PROFILE,
+    get_db_connection,
+    get_user_skills,
+    get_user_plugins
+)
 from app.utils.vector_store import get_openai_client
 
 def orchestrate_session(state: dict) -> dict:
@@ -46,6 +52,14 @@ def orchestrate_session(state: dict) -> dict:
     
     state["memory_profile"] = profile
     
+    # Load Plugins Loader (register active plugins)
+    active_plugins = get_user_plugins(user_id)
+    state["active_plugins"] = [p["plugin_id"] for p in active_plugins if p.get("enabled", True)]
+    state["active_plugin_tools"] = []
+    for p in active_plugins:
+        if p.get("enabled", True):
+            state["active_plugin_tools"].extend(p["tools_provided"])
+            
     # 2. Query user's uploaded files to inform classification
     uploaded_files = []
     try:
@@ -56,6 +70,45 @@ def orchestrate_session(state: dict) -> dict:
         conn.close()
     except Exception:
         pass
+        
+    prompt = state["prompt"]
+    prompt_lower = prompt.lower().strip()
+    
+    # Skill Router check
+    active_skills = get_user_skills(user_id)
+    matched_skill = None
+    for skill in active_skills:
+        if skill.get("enabled", True):
+            for kw in skill["trigger_keywords"]:
+                if kw.lower() in prompt_lower:
+                    matched_skill = skill
+                    break
+            if matched_skill:
+                break
+                
+    if matched_skill:
+        intent = matched_skill["intent_type"]
+        state["intent"] = intent
+        state["system_prompt_extension"] = matched_skill["system_prompt_extension"]
+        state["trace_logs"].append({
+            "agent": "Orchestrator",
+            "status": "info",
+            "message": f"Skill trigger detected! Active skill: '{matched_skill['name']}' (intent: {intent})."
+        })
+        
+        # Disable all default pipeline agents
+        state["data_analysis_agent"] = False
+        state["citation_graph_agent"] = False
+        state["gap_finder_agent"] = False
+        state["compare_agent"] = False
+        state["methodology_agent"] = False
+        state["paraphrase_agent"] = False
+        state["abstract_grader_agent"] = False
+        state["ref_formatter_agent"] = False
+        state["proposal_writer_agent"] = False
+        state["export_agent"] = any(kw in prompt_lower for kw in ["export to", "download as", "save as", "export this"])
+        state["confidence_scorer"] = any(kw in prompt_lower for kw in ["how sure", "is this accurate", "verified", "confidence report", "how confident"])
+        return state
         
     # 3. Classify intent using OpenAI
     client = get_openai_client(state["openai_key"], state.get("llm_base_url"))

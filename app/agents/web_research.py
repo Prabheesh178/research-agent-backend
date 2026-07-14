@@ -161,30 +161,35 @@ def run_web_research_agent(state: dict) -> dict:
         for i, p in enumerate(valid_papers[:8]):  # Cap at 8 to save tokens/time
             papers_summary_text += f"[{i}] Title: {p['title']}\nAbstract: {p.get('abstract', '')[:200]}...\n\n"
             
-        try:
-            rel_response = client.chat.completions.create(
-                model=model,
-                messages=[
-                    {"role": "system", "content": relevance_system},
-                    {"role": "user", "content": f"User Prompt: {prompt}\n\nPapers:\n{papers_summary_text}"}
-                ],
-                response_format={"type": "json_object"},
-                temperature=0.0
-            )
-            rel_data = json_loads_safe(rel_response.choices[0].message.content)
-            relevance_reasons = rel_data.get("reasons", [])
-            # Fallback if list is returned directly
-            if not relevance_reasons and isinstance(rel_data, dict) and "reasons" not in rel_data:
-                # sometimes LLM outputs {"0": "reason", ...} or list directly
-                relevance_reasons = list(rel_data.values()) if isinstance(rel_data, dict) else rel_data
-        except Exception:
-            relevance_reasons = []
-            
-        for idx, p in enumerate(valid_papers[:8]):
-            reason = relevance_reasons[idx] if idx < len(relevance_reasons) else "Provides background context on the research topic."
-            p["relevance"] = reason
-            final_papers.append(p)
-            
+        if state.get("merge_web_summarizer"):
+            for p in valid_papers[:8]:
+                p["relevance"] = "Retrieved literature source for prompt context."
+                final_papers.append(p)
+        else:
+            try:
+                rel_response = client.chat.completions.create(
+                    model=model,
+                    messages=[
+                        {"role": "system", "content": relevance_system},
+                        {"role": "user", "content": f"User Prompt: {prompt}\n\nPapers:\n{papers_summary_text}"}
+                    ],
+                    response_format={"type": "json_object"},
+                    temperature=0.0
+                )
+                rel_data = json_loads_safe(rel_response.choices[0].message.content)
+                relevance_reasons = rel_data.get("reasons", [])
+                # Fallback if list is returned directly
+                if not relevance_reasons and isinstance(rel_data, dict) and "reasons" not in rel_data:
+                    # sometimes LLM outputs {"0": "reason", ...} or list directly
+                    relevance_reasons = list(rel_data.values()) if isinstance(rel_data, dict) else rel_data
+            except Exception:
+                relevance_reasons = []
+                
+            for idx, p in enumerate(valid_papers[:8]):
+                reason = relevance_reasons[idx] if idx < len(relevance_reasons) else "Provides background context on the research topic."
+                p["relevance"] = reason
+                final_papers.append(p)
+                
     state["web_papers"] = final_papers
     
     paper_logs = [{"title": p["title"], "authors": p["authors"], "year": p["year"], "url": p["url"]} for p in final_papers]

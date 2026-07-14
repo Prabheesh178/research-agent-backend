@@ -57,6 +57,35 @@ def init_db():
     )
     """)
     
+    # Skills Table
+    cursor.execute("""
+    CREATE TABLE IF NOT EXISTS user_skills (
+        user_id TEXT,
+        skill_id TEXT,
+        name TEXT NOT NULL,
+        trigger_keywords TEXT NOT NULL,
+        intent_type TEXT NOT NULL,
+        system_prompt_extension TEXT NOT NULL,
+        enabled INTEGER DEFAULT 1,
+        PRIMARY KEY (user_id, skill_id)
+    )
+    """)
+    
+    # Plugins Table
+    cursor.execute("""
+    CREATE TABLE IF NOT EXISTS user_plugins (
+        user_id TEXT,
+        plugin_id TEXT,
+        name TEXT NOT NULL,
+        tools_provided TEXT NOT NULL,
+        auth_type TEXT NOT NULL,
+        auth_fields TEXT NOT NULL,
+        enabled INTEGER DEFAULT 1,
+        auth_data TEXT,
+        PRIMARY KEY (user_id, plugin_id)
+    )
+    """)
+    
     conn.commit()
     conn.close()
 
@@ -92,5 +121,138 @@ def delete_user_data(user_id: str):
     cursor.execute("DELETE FROM document_chunks WHERE user_id = ?", (user_id,))
     cursor.execute("DELETE FROM documents WHERE user_id = ?", (user_id,))
     cursor.execute("DELETE FROM user_profiles WHERE user_id = ?", (user_id,))
+    cursor.execute("DELETE FROM user_skills WHERE user_id = ?", (user_id,))
+    cursor.execute("DELETE FROM user_plugins WHERE user_id = ?", (user_id,))
     conn.commit()
     conn.close()
+
+# Skills Helpers
+def get_user_skills(user_id: str) -> list:
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute("SELECT * FROM user_skills WHERE user_id = ?", (user_id,))
+    rows = cursor.fetchall()
+    conn.close()
+    
+    skills = []
+    for r in rows:
+        skills.append({
+            "skill_id": r["skill_id"],
+            "name": r["name"],
+            "trigger_keywords": json.loads(r["trigger_keywords"]),
+            "intent_type": r["intent_type"],
+            "system_prompt_extension": r["system_prompt_extension"],
+            "enabled": bool(r["enabled"])
+        })
+    return skills
+
+def save_user_skill(user_id: str, skill: dict):
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute(
+        """
+        INSERT OR REPLACE INTO user_skills 
+        (user_id, skill_id, name, trigger_keywords, intent_type, system_prompt_extension, enabled) 
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+        """,
+        (
+            user_id,
+            skill["id"],
+            skill["name"],
+            json.dumps(skill["trigger_keywords"]),
+            skill["intent_type"],
+            skill["system_prompt_extension_content"],
+            1 if skill.get("enabled", True) else 0
+        )
+    )
+    conn.commit()
+    conn.close()
+
+def delete_user_skill(user_id: str, skill_id: str):
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute("DELETE FROM user_skills WHERE user_id = ? AND skill_id = ?", (user_id, skill_id))
+    conn.commit()
+    conn.close()
+
+def toggle_skill_enabled(user_id: str, skill_id: str, enabled: bool):
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute(
+        "UPDATE user_skills SET enabled = ? WHERE user_id = ? AND skill_id = ?",
+        (1 if enabled else 0, user_id, skill_id)
+    )
+    conn.commit()
+    conn.close()
+
+# Plugins Helpers
+def get_user_plugins(user_id: str) -> list:
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute("SELECT * FROM user_plugins WHERE user_id = ?", (user_id,))
+    rows = cursor.fetchall()
+    conn.close()
+    
+    plugins = []
+    for r in rows:
+        plugins.append({
+            "plugin_id": r["plugin_id"],
+            "name": r["name"],
+            "tools_provided": json.loads(r["tools_provided"]),
+            "auth_type": r["auth_type"],
+            "auth_fields": json.loads(r["auth_fields"]),
+            "enabled": bool(r["enabled"]),
+            "auth_data": json.loads(r["auth_data"]) if r["auth_data"] else {}
+        })
+    return plugins
+
+def save_user_plugin(user_id: str, plugin: dict):
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute(
+        """
+        INSERT OR REPLACE INTO user_plugins 
+        (user_id, plugin_id, name, tools_provided, auth_type, auth_fields, enabled, auth_data) 
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        """,
+        (
+            user_id,
+            plugin["id"],
+            plugin["name"],
+            json.dumps(plugin["tools_provided"]),
+            plugin["auth_type"],
+            json.dumps(plugin.get("auth_fields", [])),
+            1 if plugin.get("enabled", True) else 0,
+            json.dumps(plugin.get("auth_data", {}))
+        )
+    )
+    conn.commit()
+    conn.close()
+
+def delete_user_plugin(user_id: str, plugin_id: str):
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute("DELETE FROM user_plugins WHERE user_id = ? AND plugin_id = ?", (user_id, plugin_id))
+    conn.commit()
+    conn.close()
+
+def toggle_plugin_enabled(user_id: str, plugin_id: str, enabled: bool):
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute(
+        "UPDATE user_plugins SET enabled = ? WHERE user_id = ? AND plugin_id = ?",
+        (1 if enabled else 0, user_id, plugin_id)
+    )
+    conn.commit()
+    conn.close()
+
+def save_plugin_auth(user_id: str, plugin_id: str, auth_data: dict):
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute(
+        "UPDATE user_plugins SET auth_data = ? WHERE user_id = ? AND plugin_id = ?",
+        (json.dumps(auth_data), user_id, plugin_id)
+    )
+    conn.commit()
+    conn.close()
+
