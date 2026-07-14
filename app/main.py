@@ -336,3 +336,37 @@ def toggle_plugin_endpoint(data: ToggleItem):
 def auth_plugin_endpoint(data: AuthItem):
     save_plugin_auth(data.user_id, data.plugin_id, data.auth_data)
     return {"status": "success", "message": f"Plugin {data.plugin_id} auth saved."}
+
+import json
+
+@app.post("/api/skills/upload")
+async def upload_local_skill_endpoint(
+    user_id: str = Form(...),
+    file: UploadFile = File(...)
+):
+    from app.utils.skills_manager import import_local_skill
+    content = await file.read()
+    try:
+        text = content.decode("utf-8")
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid text encoding. Please upload a UTF-8 markdown file.")
+    res = import_local_skill(user_id, text)
+    if res["status"] == "error":
+        raise HTTPException(status_code=400, detail=res["message"])
+    return res
+
+@app.post("/api/plugins/upload")
+async def upload_local_plugin_endpoint(
+    user_id: str = Form(...),
+    file: UploadFile = File(...)
+):
+    from app.utils.skills_manager import import_local_plugin
+    content = await file.read()
+    try:
+        data = json.loads(content.decode("utf-8"))
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid JSON file format. Please upload a valid JSON manifest.")
+    res = import_local_plugin(user_id, data)
+    if res["status"] == "error":
+        raise HTTPException(status_code=400, detail=res["message"])
+    return res

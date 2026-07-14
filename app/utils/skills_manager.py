@@ -215,3 +215,84 @@ def make_command_response(message: str) -> dict:
         "trace_logs": [{"agent": "System Installer", "status": "completed", "message": "Command executed successfully."}],
         "skip_pipeline": True
     }
+
+def import_local_skill(user_id: str, content: str) -> dict:
+    # 1. Run safety scan first
+    if SECURITY_OVERRIDE_PATTERN.search(content):
+        return {"status": "error", "message": "❌ Security validation failed: Forbidden instructions detected."}
+
+    # 2. Parse frontmatter
+    parts = content.split("---")
+    if len(parts) < 3:
+        return {"status": "error", "message": "❌ Invalid format. Please ensure frontmatter is enclosed in '---'."}
+        
+    frontmatter_text = parts[1]
+    prompt_content = parts[2].strip()
+    
+    metadata = {}
+    for line in frontmatter_text.split("\n"):
+        line = line.strip()
+        if not line or ":" not in line:
+            continue
+        key, val = line.split(":", 1)
+        key = key.strip().lower()
+        val = val.strip()
+        
+        if val.startswith("[") and val.endswith("]"):
+            val = [x.strip().strip('"').strip("'") for x in val[1:-1].split(",") if x.strip()]
+        else:
+            val = val.strip('"').strip("'")
+            
+        metadata[key] = val
+        
+    required = ["id", "name"]
+    for r in required:
+        if r not in metadata:
+            return {"status": "error", "message": f"❌ Missing frontmatter field '{r}'."}
+            
+    triggers = metadata.get("trigger_keywords", [])
+    if isinstance(triggers, str):
+        triggers = [x.strip() for x in triggers.split(",") if x.strip()]
+        
+    skill_data = {
+        "skill_id": metadata["id"],
+        "name": metadata["name"],
+        "version": metadata.get("version", "1.0.0"),
+        "trigger_keywords": triggers,
+        "intent_type": metadata.get("intent_type", "CUSTOM_" + metadata["id"].upper().replace("-", "_")),
+        "prompt_extension": prompt_content,
+        "enabled": 1
+    }
+    
+    save_user_skill(user_id, skill_data)
+    return {
+        "status": "success", 
+        "message": f"✅ **{skill_data['name']}** local skill imported successfully.",
+        "skill": skill_data
+    }
+
+def import_local_plugin(user_id: str, plugin_data: dict) -> dict:
+    required = ["id", "name", "tools_provided"]
+    for r in required:
+        if r not in plugin_data:
+            return {"status": "error", "message": f"❌ Missing plugin manifest field '{r}'."}
+            
+    serialized = json.dumps(plugin_data)
+    if SECURITY_OVERRIDE_PATTERN.search(serialized):
+        return {"status": "error", "message": "❌ Security validation failed: Forbidden instructions detected."}
+        
+    plugin_entry = {
+        "plugin_id": plugin_data["id"],
+        "name": plugin_data["name"],
+        "version": plugin_data.get("version", "1.0.0"),
+        "tools_provided": plugin_data["tools_provided"],
+        "auth_type": plugin_data.get("auth_type", "none"),
+        "enabled": 1
+    }
+    
+    save_user_plugin(user_id, plugin_entry)
+    return {
+        "status": "success",
+        "message": f"✅ **{plugin_entry['name']}** local plugin imported successfully.",
+        "plugin": plugin_entry
+    }
